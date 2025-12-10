@@ -120,7 +120,7 @@ Attribution: "BodyParts3D - The Database Center for Life Science - CC-BY-SA 2.1 
 
 ## License
 
-[Your chosen license]
+MIT
 
 ## Contributing
 
