@@ -19,12 +19,12 @@ function formatName(meshId: string): { common: string; anatomical: string } {
     .replace(/_ol$/, '')
     .replace(/_or$/, '')
     .replace(/[()]/g, '');
-  
+
   const words = clean.split('_').filter(Boolean);
   const titleCased = words
     .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
     .join(' ');
-  
+
   return { common: titleCased, anatomical: titleCased };
 }
 
@@ -42,7 +42,7 @@ export function InfoPanel() {
   } = useAnatomyStore();
 
   // Get structure from metadata
-  const metadata = torsoMetadata as { structures: Record<string, StructureMetadata> };
+  const metadata = JSON.parse(JSON.stringify(torsoMetadata)) as { structures: Record<string, StructureMetadata> };
   const structure = selectedStructureId ? metadata.structures[selectedStructureId] : null;
 
   if (!infoPanelOpen || !structure) return null;
@@ -77,7 +77,7 @@ export function InfoPanel() {
               </svg>
             </button>
           </div>
-          
+
           {/* Type badge */}
           <span className={`
             inline-block mt-2 px-2 py-0.5 rounded text-xs uppercase tracking-wide font-medium
@@ -99,7 +99,7 @@ export function InfoPanel() {
             </h3>
             <div className="flex flex-wrap gap-1.5">
               {structure.regions.map((region) => (
-                <span 
+                <span
                   key={region}
                   className="px-2 py-1 text-xs bg-surface-800 text-surface-300 rounded-md capitalize"
                 >
@@ -129,8 +129,8 @@ export function InfoPanel() {
               Center Position
             </h3>
             <p className="text-xs text-surface-500 font-mono">
-              x: {structure.center[0].toFixed(3)}, 
-              y: {structure.center[1].toFixed(3)}, 
+              x: {structure.center[0].toFixed(3)},
+              y: {structure.center[1].toFixed(3)},
               z: {structure.center[2].toFixed(3)}
             </p>
           </section>
@@ -138,7 +138,7 @@ export function InfoPanel() {
           {/* Placeholder for future content */}
           <section className="pt-4 border-t border-surface-800">
             <p className="text-xs text-surface-500 italic">
-              Detailed descriptions, muscle attachments, and exercise information 
+              Detailed descriptions, muscle attachments, and exercise information
               will be added as the content database grows.
             </p>
           </section>

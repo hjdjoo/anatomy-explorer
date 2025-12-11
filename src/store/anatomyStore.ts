@@ -1,11 +1,11 @@
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
-import type { 
-  ViewMode, 
-  LayerVisibility, 
-  CameraState,
+import type {
+  ViewMode,
+  LayerVisibility,
+  // CameraState,
   RegionId,
-  AnatomicalStructure 
+  // AnatomicalStructure 
 } from '@/types';
 
 // ============================================================
@@ -16,37 +16,46 @@ interface AnatomyState {
   // === Selection State ===
   /** Currently hovered structure ID */
   hoveredStructureId: string | null;
-  
+
   /** Currently selected (clicked) structure ID */
   selectedStructureId: string | null;
-  
+
   /** Currently focused body region */
   activeRegion: RegionId;
-  
+
   // === View Settings ===
   /** Fitness vs clinical terminology/descriptions */
   viewMode: ViewMode;
-  
+
   /** Which structure types are visible */
   layerVisibility: LayerVisibility;
-  
+
   /** Current zoom level (affects layer auto-visibility) */
   zoomLevel: number;
-  
+
+  /** 
+   * Depth peel level (0-3)
+   * 0 = show all layers (superficial to deep)
+   * 1 = hide superficial (layer 3), show layers 0-2
+   * 2 = hide superficial + intermediate, show layers 0-1
+   * 3 = show only deepest (bones, layer 0)
+   */
+  peelDepth: number;
+
   // === UI State ===
   /** Whether the info panel is expanded */
   infoPanelOpen: boolean;
-  
+
   /** Whether settings panel is open */
   settingsPanelOpen: boolean;
-  
+
   /** Search query for structure search */
   searchQuery: string;
-  
+
   // === Loading State ===
   /** Whether models are currently loading */
   isLoading: boolean;
-  
+
   /** Loading progress (0-100) */
   loadingProgress: number;
 }
@@ -57,7 +66,7 @@ interface AnatomyActions {
   setSelectedStructure: (id: string | null) => void;
   clearSelection: () => void;
   setActiveRegion: (region: RegionId) => void;
-  
+
   // === View Actions ===
   setViewMode: (mode: ViewMode) => void;
   toggleViewMode: () => void;
@@ -66,13 +75,23 @@ interface AnatomyActions {
   showAllLayers: () => void;
   hideAllLayers: () => void;
   setZoomLevel: (zoom: number) => void;
-  
+
+  // === Depth Peeling Actions ===
+  /** Peel one layer deeper (increase peelDepth) */
+  peelDeeper: () => void;
+  /** Restore one layer (decrease peelDepth) */
+  restoreLayer: () => void;
+  /** Set specific peel depth */
+  setPeelDepth: (depth: number) => void;
+  /** Reset to show all layers */
+  resetPeel: () => void;
+
   // === UI Actions ===
   toggleInfoPanel: () => void;
   setInfoPanelOpen: (open: boolean) => void;
   toggleSettingsPanel: () => void;
   setSearchQuery: (query: string) => void;
-  
+
   // === Loading Actions ===
   setLoading: (loading: boolean) => void;
   setLoadingProgress: (progress: number) => void;
@@ -97,7 +116,7 @@ const defaultLayerVisibility: LayerVisibility = {
 // ============================================================
 
 export const useAnatomyStore = create<AnatomyStore>()(
-  subscribeWithSelector((set, get) => ({
+  subscribeWithSelector((set, _get) => ({
     // === Initial State ===
     hoveredStructureId: null,
     selectedStructureId: null,
@@ -105,6 +124,7 @@ export const useAnatomyStore = create<AnatomyStore>()(
     viewMode: 'fitness',
     layerVisibility: defaultLayerVisibility,
     zoomLevel: 1,
+    peelDepth: 0, // 0 = show all layers
     infoPanelOpen: false,
     settingsPanelOpen: false,
     searchQuery: '',
@@ -113,41 +133,41 @@ export const useAnatomyStore = create<AnatomyStore>()(
 
     // === Selection Actions ===
     setHoveredStructure: (id) => set({ hoveredStructureId: id }),
-    
-    setSelectedStructure: (id) => set({ 
+
+    setSelectedStructure: (id) => set({
       selectedStructureId: id,
       // Auto-open info panel when selecting a structure
       infoPanelOpen: id !== null,
     }),
-    
-    clearSelection: () => set({ 
+
+    clearSelection: () => set({
       selectedStructureId: null,
       hoveredStructureId: null,
     }),
-    
+
     setActiveRegion: (region) => set({ activeRegion: region }),
 
     // === View Actions ===
     setViewMode: (mode) => set({ viewMode: mode }),
-    
-    toggleViewMode: () => set((state) => ({ 
-      viewMode: state.viewMode === 'fitness' ? 'clinical' : 'fitness' 
+
+    toggleViewMode: () => set((state) => ({
+      viewMode: state.viewMode === 'fitness' ? 'clinical' : 'fitness'
     })),
-    
+
     setLayerVisibility: (layer, visible) => set((state) => ({
       layerVisibility: {
         ...state.layerVisibility,
         [layer]: visible,
       },
     })),
-    
+
     toggleLayer: (layer) => set((state) => ({
       layerVisibility: {
         ...state.layerVisibility,
         [layer]: !state.layerVisibility[layer],
       },
     })),
-    
+
     showAllLayers: () => set({
       layerVisibility: {
         bones: true,
@@ -157,7 +177,7 @@ export const useAnatomyStore = create<AnatomyStore>()(
         organs: true,
       },
     }),
-    
+
     hideAllLayers: () => set({
       layerVisibility: {
         bones: false,
@@ -167,25 +187,40 @@ export const useAnatomyStore = create<AnatomyStore>()(
         organs: false,
       },
     }),
-    
+
     setZoomLevel: (zoom) => set({ zoomLevel: zoom }),
 
+    // === Depth Peeling Actions ===
+    peelDeeper: () => set((state) => ({
+      peelDepth: Math.min(state.peelDepth + 1, 3),
+    })),
+
+    restoreLayer: () => set((state) => ({
+      peelDepth: Math.max(state.peelDepth - 1, 0),
+    })),
+
+    setPeelDepth: (depth) => set({
+      peelDepth: Math.max(0, Math.min(3, depth)),
+    }),
+
+    resetPeel: () => set({ peelDepth: 0 }),
+
     // === UI Actions ===
-    toggleInfoPanel: () => set((state) => ({ 
-      infoPanelOpen: !state.infoPanelOpen 
+    toggleInfoPanel: () => set((state) => ({
+      infoPanelOpen: !state.infoPanelOpen
     })),
-    
+
     setInfoPanelOpen: (open) => set({ infoPanelOpen: open }),
-    
-    toggleSettingsPanel: () => set((state) => ({ 
-      settingsPanelOpen: !state.settingsPanelOpen 
+
+    toggleSettingsPanel: () => set((state) => ({
+      settingsPanelOpen: !state.settingsPanelOpen
     })),
-    
+
     setSearchQuery: (query) => set({ searchQuery: query }),
 
     // === Loading Actions ===
     setLoading: (loading) => set({ isLoading: loading }),
-    
+
     setLoadingProgress: (progress) => set({ loadingProgress: progress }),
   }))
 );
@@ -197,15 +232,15 @@ export const useAnatomyStore = create<AnatomyStore>()(
 /**
  * Get the currently hovered or selected structure for display
  */
-export const useActiveStructureId = () => 
+export const useActiveStructureId = () =>
   useAnatomyStore((state) => state.selectedStructureId ?? state.hoveredStructureId);
 
 /**
  * Check if a specific structure should be highlighted
  */
 export const useIsStructureHighlighted = (structureId: string) =>
-  useAnatomyStore((state) => 
-    state.hoveredStructureId === structureId || 
+  useAnatomyStore((state) =>
+    state.hoveredStructureId === structureId ||
     state.selectedStructureId === structureId
   );
 

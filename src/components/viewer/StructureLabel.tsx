@@ -21,13 +21,13 @@ function formatName(meshId: string): { common: string; anatomical: string } {
     .replace(/_ol$/, '')
     .replace(/_or$/, '')
     .replace(/[()]/g, '');
-  
+
   // Title case
   const words = clean.split('_').filter(Boolean);
   const titleCased = words
     .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
     .join(' ');
-  
+
   return { common: titleCased, anatomical: titleCased };
 }
 
@@ -43,13 +43,13 @@ export function StructureLabel() {
   if (!activeId) return null;
 
   // Get structure data from metadata
-  const metadata = torsoMetadata as { structures: Record<string, StructureMetadata> };
+  const metadata = JSON.parse(JSON.stringify(torsoMetadata)) as { structures: Record<string, StructureMetadata> };
   const structureData = metadata.structures[activeId];
-  
+
   if (!structureData) return null;
 
   const names = formatName(activeId);
-  
+
   // Use common name for fitness mode, anatomical name for clinical
   const displayName = viewMode === 'fitness' ? names.common : names.anatomical;
 
@@ -72,15 +72,15 @@ export function StructureLabel() {
         userSelect: 'none',
       }}
     >
-      <div 
+      <div
         className={`
           px-3 py-1.5 rounded-lg 
           backdrop-blur-md
           border border-surface-700/50
           shadow-lg shadow-black/20
           transition-all duration-200
-          ${isSelected 
-            ? 'bg-surface-800/95 scale-105' 
+          ${isSelected
+            ? 'bg-surface-800/95 scale-105'
             : 'bg-surface-900/90'
           }
         `}
@@ -88,14 +88,14 @@ export function StructureLabel() {
         <span className="text-sm font-medium text-surface-100 whitespace-nowrap">
           {displayName}
         </span>
-        
+
         {/* Show regions on selection */}
         {isSelected && structureData.regions.length > 0 && (
           <span className="block text-xs text-surface-400 mt-0.5">
             {structureData.regions.join(', ')}
           </span>
         )}
-        
+
         {/* Structure type badge */}
         <span className={`
           inline-block mt-1 px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wide

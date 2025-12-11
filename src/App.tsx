@@ -11,9 +11,9 @@ function App() {
     <div className="w-screen h-screen bg-surface-950 overflow-hidden relative">
       {/* Background gradient */}
       <div className="absolute inset-0 bg-gradient-to-b from-surface-900 via-surface-950 to-surface-950" />
-      
+
       {/* Subtle grid pattern */}
-      <div 
+      <div
         className="absolute inset-0 opacity-[0.02]"
         style={{
           backgroundImage: `

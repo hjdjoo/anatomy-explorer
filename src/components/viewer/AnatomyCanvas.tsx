@@ -7,7 +7,6 @@ import { LoadingIndicator } from './LoadingIndicator';
 import { StructureLabel } from './StructureLabel';
 
 // Set to true to use placeholder geometry, false for real GLTF model
-const USE_PLACEHOLDER = false;
 
 /**
  * Main 3D canvas component for the anatomy viewer.
@@ -18,19 +17,19 @@ export function AnatomyCanvas() {
 
   return (
     <Canvas
-      camera={{ 
-        position: [0, 0, 1.5], 
+      camera={{
+        position: [0, 0, 1.5],
         fov: 50,
         near: 0.1,
         far: 100,
       }}
       shadows
-      gl={{ 
+      gl={{
         antialias: true,
         alpha: true,
         powerPreference: 'high-performance',
       }}
-      style={{ 
+      style={{
         background: 'transparent',
         touchAction: 'none', // Prevent touch scrolling
       }}
@@ -47,7 +46,7 @@ export function AnatomyCanvas() {
         position={[-5, 3, -5]}
         intensity={0.5}
       />
-      
+
       {/* Environment for reflections (subtle) */}
       <Environment preset="studio" />
 

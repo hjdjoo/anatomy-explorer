@@ -19,7 +19,7 @@ import bpy
 import json
 import os
 from mathutils import Vector
-from typing import Dict, List, Set, Optional, Any
+from typing import Dict, List, Any
 
 # ============================================================
 # CONFIGURATION
@@ -241,11 +241,42 @@ def get_regions(obj: bpy.types.Object) -> List[str]:
 
 
 def get_object_center(obj: bpy.types.Object) -> List[float]:
-    """Get the world-space center of an object's bounding box."""
-    local_bbox = [Vector(corner) for corner in obj.bound_box]
-    world_bbox = [obj.matrix_world @ corner for corner in local_bbox]
-    center = sum(world_bbox, Vector()) / 8
-    return [round(center.x, 4), round(center.y, 4), round(center.z, 4)]
+    """Get the world-space center of an object's mesh vertices.
+    
+    Returns coordinates in Blender's native system (Z-up):
+    [X, Y, Z] where X=right/left, Y=front/back, Z=up/down
+    
+    The TypeScript side will handle any coordinate system matching.
+    """
+    try:
+        # Get the evaluated mesh (applies modifiers)
+        depsgraph = bpy.context.evaluated_depsgraph_get()
+        eval_obj = obj.evaluated_get(depsgraph)
+        mesh = eval_obj.to_mesh()
+        
+        if not mesh or len(mesh.vertices) == 0:
+            # Fallback to object location if no vertices
+            loc = obj.matrix_world.translation
+            return [round(loc.x, 4), round(loc.y, 4), round(loc.z, 4)]
+        
+        # Transform all vertices to world space and find center
+        world_matrix = obj.matrix_world
+        world_verts = [world_matrix @ v.co for v in mesh.vertices]
+        
+        # Calculate centroid (average of all vertex positions)
+        centroid = sum(world_verts, Vector()) / len(world_verts)
+        
+        # Clean up the temporary mesh
+        eval_obj.to_mesh_clear()
+        
+        # Return raw Blender coordinates [X, Y, Z] (Z-up)
+        return [round(centroid.x, 4), round(centroid.y, 4), round(centroid.z, 4)]
+    
+    except Exception as e:
+        # Fallback to object location on any error
+        print(f"Warning: Could not calculate center for {obj.name}: {e}")
+        loc = obj.matrix_world.translation
+        return [round(loc.x, 4), round(loc.y, 4), round(loc.z, 4)]
 
 
 # ============================================================
@@ -256,9 +287,16 @@ def find_torso_objects() -> List[bpy.types.Object]:
     """Find all mesh objects that belong to the torso region."""
     torso_objects = []
     
+    # Get objects in the current view layer (only these can be selected/exported)
+    view_layer_objects = {obj.name for obj in bpy.context.view_layer.objects}
+    
     for obj in bpy.data.objects:
         # Only process mesh objects
         if obj.type != 'MESH':
+            continue
+        
+        # Skip objects not in current view layer (can't be selected for export)
+        if obj.name not in view_layer_objects:
             continue
         
         # Skip if it matches exclude patterns
@@ -328,19 +366,34 @@ def export_gltf(objects: List[bpy.types.Object], output_path: str):
     # Deselect all
     bpy.ops.object.select_all(action='DESELECT')
     
-    # Select our objects
+    # Get valid objects (in view layer and selectable)
+    view_layer_objects = {obj.name for obj in bpy.context.view_layer.objects}
+    valid_objects = []
+    
     for obj in objects:
-        obj.select_set(True)
+        if obj.name in view_layer_objects:
+            try:
+                obj.select_set(True)
+                valid_objects.append(obj)
+            except RuntimeError as e:
+                print(f"Warning: Could not select {obj.name}: {e}")
+        else:
+            print(f"Warning: {obj.name} not in view layer, skipping")
+    
+    if not valid_objects:
+        print("ERROR: No valid objects to export!")
+        return
     
     # Set active object
-    if objects:
-        bpy.context.view_layer.objects.active = objects[0]
+    bpy.context.view_layer.objects.active = valid_objects[0]
+    
+    print(f"Exporting {len(valid_objects)} objects...")
     
     # Export as glTF
     bpy.ops.export_scene.gltf(
         filepath=output_path,
         use_selection=True,
-        export_draco_mesh_compression_enable=True, export_draco_mesh_compression_level=6, 
+        export_draco_mesh_compression_enable=True,
         export_format='GLB',  # Binary format, more compact
         export_apply=True,  # Apply modifiers
         export_texcoords=True,
