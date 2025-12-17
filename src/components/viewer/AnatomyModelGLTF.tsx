@@ -12,14 +12,12 @@ import torsoMetadata from '@/data/torso_metadata.json';
 // DEBUG CONFIGURATION
 // ============================================================
 
-// Set to true to enable debugging output for specific structures
-const DEBUG_ENABLED = true;
-const DEBUG_STRUCTURES = ['inguinal_ligament', 'inguinal_ligament_1'];
+const DEBUG_ENABLED = false;
+const DEBUG_STRUCTURES = ['inguinal_ligament', 'pubic_ligament'];
 
 function debugLog(meshName: string, message: string, data?: unknown) {
   if (!DEBUG_ENABLED) return;
   if (!DEBUG_STRUCTURES.some(s => meshName.toLowerCase().includes(s.toLowerCase()))) return;
-
   console.log(`[DEBUG ${meshName}] ${message}`, data ?? '');
 }
 
@@ -43,18 +41,17 @@ interface MetadataFile {
   structures: Record<string, StructureMetadata>;
 }
 
-// Extended metadata with computed center
 interface ProcessedStructure {
+  uniqueKey: string;           // Unique key for React (glTF mesh name)
   mesh: THREE.Mesh;
   metadata: StructureMetadata;
-  computedCenter: THREE.Vector3; // Computed from actual geometry
+  center: THREE.Vector3;       // From metadata (trusted from V7 export)
 }
 
 // ============================================================
 // CONSTANTS
 // ============================================================
 
-// Color palette by structure type
 const TYPE_COLORS: Record<string, { default: string; highlight: string }> = {
   bone: { default: '#E8DCC4', highlight: '#FFF8E7' },
   muscle: { default: '#C41E3A', highlight: '#FF4D6A' },
@@ -65,61 +62,89 @@ const TYPE_COLORS: Record<string, { default: string; highlight: string }> = {
   fascia: { default: '#D4A5A5', highlight: '#E8C5C5' },
 };
 
-// Map structure types to layer visibility keys
 const TYPE_TO_VISIBILITY_KEY: Record<string, keyof LayerVisibility> = {
   bone: 'bones',
   muscle: 'muscles',
   organ: 'organs',
   tendon: 'tendons',
   ligament: 'ligaments',
-  cartilage: 'bones', // Group with bones
-  fascia: 'muscles', // Group with muscles
+  cartilage: 'bones',
+  fascia: 'muscles',
 };
+
+// ============================================================
+// GLTF NAME NORMALIZATION
+// ============================================================
+
+/**
+ * Normalize a glTF mesh name to match metadata keys.
+ * 
+ * glTF exporter adds suffixes like '001', '002' to mesh names.
+ * Examples:
+ *   - 'inguinal_ligament001' → 'inguinal_ligament'
+ *   - 'inguinal_ligament_1001' → 'inguinal_ligament_1'
+ *   - 'Hip_bone001' → 'hip_bone'
+ */
+function normalizeGltfName(gltfName: string): string {
+  return gltfName
+    .replace(/00\d+/g, '')      // Remove Blender's numeric suffixes (001, 002, etc.)
+    .toLowerCase()
+    .replace(/__+/g, '_')       // Clean up double underscores
+    .replace(/_+$/, '');        // Remove trailing underscores
+}
+
+/**
+ * Find metadata for a glTF mesh.
+ * Returns the metadata key and data, or null if not found.
+ */
+function findMetadataForMesh(
+  gltfName: string,
+  structures: Record<string, StructureMetadata>
+): { key: string; data: StructureMetadata } | null {
+  // Try exact match first
+  if (structures[gltfName]) {
+    return { key: gltfName, data: structures[gltfName] };
+  }
+
+  // Try normalized name
+  const normalized = normalizeGltfName(gltfName);
+  if (structures[normalized]) {
+    return { key: normalized, data: structures[normalized] };
+  }
+
+  // Try lowercase only
+  const lowercased = gltfName.toLowerCase();
+  if (structures[lowercased]) {
+    return { key: lowercased, data: structures[lowercased] };
+  }
+
+  return null;
+}
 
 // ============================================================
 // STRUCTURE FILTERING
 // ============================================================
 
-// Patterns that indicate non-anatomical or non-torso structures
 const EXCLUDE_NAME_PATTERNS = [
-  // Reference planes and movement terms (teaching aids, not anatomy)
   'plane', 'planes', 'flexion', 'extension', 'rotation', 'abduction',
   'adduction', 'pronation', 'supination', 'circumduction',
-
-  // Eye muscles (matched "rectus" and "oblique" too broadly)
   'lateral_rectus_muscle', 'medial_rectus_muscle', 'superior_rectus_muscle',
   'inferior_rectus_muscle', 'superior_oblique_muscle', 'inferior_oblique_muscle',
-
-  // Forearm structures
-  'pronator_quadratus', 'pronator_teres', 'supinator',
-  'oblique_cord',
-
-  // Foot structures (matched "quadratus" too broadly)
-  'plantae',
-
-  // Leg structures below pelvis
-  'popliteal', 'femoris', 'tibial', 'fibular', 'peroneal',
-  'gastrocnemius', 'soleus', 'plantaris',
-
-  // Lymph nodes (usually just labels)
-  'lymph_node',
+  'pronator_quadratus', 'pronator_teres', 'supinator', 'oblique_cord',
+  'plantae', 'popliteal', 'femoris', 'tibial', 'fibular', 'peroneal',
+  'gastrocnemius', 'soleus', 'plantaris', 'lymph_node',
 ];
 
-// Z-Anatomy suffix patterns to exclude
 const EXCLUDE_SUFFIX_PATTERNS = [
-  /_i$/i,          // Broken geometry position (data at origin)
-  /_o\d*[lr]$/i,   // _ol, _or, _o1l, _o2r, _o19l, etc.
-  /_e\d+[lr]$/i,   // _e1l, _e2r, _e19l, etc. (numbered e variants)
-  /_el$/i,         // _el (even unnumbered - many are broken)
-  /_er$/i,         // _er (even unnumbered - many are broken)
+  /_i$/i,
+  /_o\d*[lr]$/i,
+  /_e\d+[lr]$/i,
+  /_el$/i,
+  /_er$/i,
 ];
 
-// Types to exclude entirely
 const EXCLUDE_TYPES = ['organ'];
 
-/**
- * Determine if a structure should be rendered based on type and name.
- */
 function shouldRenderByTypeAndName(metadata: StructureMetadata): boolean {
   if (EXCLUDE_TYPES.includes(metadata.type)) {
     return false;
@@ -139,96 +164,39 @@ function shouldRenderByTypeAndName(metadata: StructureMetadata): boolean {
 }
 
 // ============================================================
-// CENTER COMPUTATION - CLEAN IMPLEMENTATION
+// MESH PROCESSING (SIMPLIFIED - TRUST METADATA)
 // ============================================================
 
 /**
- * Compute the world-space center of a mesh's geometry.
- * 
- * This is the SINGLE SOURCE OF TRUTH for mesh centers.
- * It computes the center from the actual vertex data after applying
- * all world transforms, making it immune to:
- * - Parent-child hierarchy issues in glTF
- * - Coordinate system mismatches between Blender and Three.js
- * - Metadata errors from the export process
- * 
- * @param geometry - The mesh geometry
- * @param worldMatrix - The world transform matrix to apply
- * @returns The center point in world coordinates
- */
-function computeGeometryCenter(
-  geometry: THREE.BufferGeometry,
-  worldMatrix: THREE.Matrix4
-): THREE.Vector3 {
-  // Clone geometry so we don't mutate the original
-  const tempGeometry = geometry.clone();
-
-  // Apply world transform to get vertices in world space
-  tempGeometry.applyMatrix4(worldMatrix);
-
-  // Compute bounding box from transformed vertices
-  tempGeometry.computeBoundingBox();
-
-  if (!tempGeometry.boundingBox) {
-    console.warn('Could not compute bounding box for geometry');
-    return new THREE.Vector3();
-  }
-
-  // Get center of bounding box
-  const center = new THREE.Vector3();
-  tempGeometry.boundingBox.getCenter(center);
-
-  // Clean up
-  tempGeometry.dispose();
-
-  return center;
-}
-
-/**
- * Process a mesh from the glTF scene:
- * 1. Clone geometry
- * 2. Apply world transforms to vertex data
- * 3. Compute center from transformed geometry
- * 
- * This ensures the mesh renders correctly at origin with all transforms baked in,
- * and we have an accurate center for UI/camera purposes.
+ * Process a mesh from the glTF scene.
+ * Simply clones geometry with world transforms baked in.
+ * Center comes from metadata (trusted from V7 export).
  */
 function processGLTFMesh(
   child: THREE.Mesh,
-  metadata: StructureMetadata
+  metadata: StructureMetadata,
+  uniqueKey: string
 ): ProcessedStructure {
   debugLog(child.name, 'Processing mesh');
-  debugLog(child.name, 'Local position:', child.position.toArray());
-  debugLog(child.name, 'World matrix:', child.matrixWorld.toArray());
 
-  // Step 1: Compute center BEFORE cloning/transforming
-  // We need the world matrix to transform the geometry center
-  const computedCenter = computeGeometryCenter(child.geometry, child.matrixWorld);
-
-  debugLog(child.name, 'Metadata center:', metadata.center);
-  debugLog(child.name, 'Computed center:', computedCenter.toArray());
-
-  // Check for significant mismatch
-  const metadataVec = new THREE.Vector3(...metadata.center);
-  const distance = computedCenter.distanceTo(metadataVec);
-  if (distance > 0.05) { // More than 5cm difference
-    debugLog(child.name, `⚠️ CENTER MISMATCH: ${distance.toFixed(4)} units difference`);
-  }
-
-  // Step 2: Clone geometry and bake world transform into vertices
+  // Clone geometry and bake world transform into vertices
   const clonedGeometry = child.geometry.clone();
   clonedGeometry.applyMatrix4(child.matrixWorld);
 
-  // Step 3: Create new mesh at origin (transform is baked into vertices)
+  // Create new mesh at origin (transform is baked into vertices)
   const newMesh = new THREE.Mesh(clonedGeometry);
   newMesh.name = child.name;
 
-  debugLog(child.name, 'Processing complete ✓');
+  // Use center from metadata (V7 export computed this correctly)
+  const center = new THREE.Vector3(...metadata.center);
+
+  debugLog(child.name, 'Center from metadata:', metadata.center);
 
   return {
+    uniqueKey,
     mesh: newMesh,
     metadata,
-    computedCenter,
+    center,
   };
 }
 
@@ -241,12 +209,10 @@ interface StructureMeshProps {
 }
 
 function StructureMesh({ structure }: StructureMeshProps) {
-  const { mesh, metadata, computedCenter } = structure;
+  const { mesh, metadata, center } = structure;
   const materialRef = useRef<THREE.MeshStandardMaterial>(null);
   const meshRef = useRef<THREE.Mesh>(null);
   const [hovered, setHovered] = useState(false);
-
-  // Current animated opacity for smooth transitions
   const animatedOpacity = useRef(1);
 
   const {
@@ -262,7 +228,6 @@ function StructureMesh({ structure }: StructureMeshProps) {
   const colors = TYPE_COLORS[metadata.type] || TYPE_COLORS.muscle;
   const isSelected = selectedStructureId === metadata.meshId;
 
-  // Check if this structure matches the search query
   const matchesSearch = searchQuery.length > 1 && (
     metadata.meshId.toLowerCase().includes(searchQuery.toLowerCase()) ||
     metadata.originalName.toLowerCase().includes(searchQuery.toLowerCase())
@@ -270,21 +235,14 @@ function StructureMesh({ structure }: StructureMeshProps) {
 
   const isHighlighted = hovered || isSelected || hoveredStructureId === metadata.meshId || matchesSearch;
 
-  // Check visibility based on structure type
   const visibilityKey = TYPE_TO_VISIBILITY_KEY[metadata.type] || 'muscles';
   const isTypeVisible = layerVisibility[visibilityKey];
 
-  // Depth peeling logic
   const maxVisibleLayer = 3 - peelDepth;
   const isPeeled = metadata.layer > maxVisibleLayer;
-
-  // Search matches override peeling
   const shouldPeel = isPeeled && !matchesSearch;
-
-  // Target opacity based on peel state
   const targetOpacity = shouldPeel ? 0 : (metadata.type === 'bone' ? 1 : 0.9);
 
-  // Create material once
   const material = useMemo(() => {
     return new THREE.MeshStandardMaterial({
       color: colors.default,
@@ -297,11 +255,9 @@ function StructureMesh({ structure }: StructureMeshProps) {
     });
   }, [colors.default, metadata.type]);
 
-  // Animate color and opacity
   useFrame(() => {
     if (!materialRef.current) return;
 
-    // Animate color
     let targetColor = colors.default;
     if (matchesSearch) {
       targetColor = '#FFD700';
@@ -310,28 +266,21 @@ function StructureMesh({ structure }: StructureMeshProps) {
     }
     materialRef.current.color.lerp(new THREE.Color(targetColor), 0.1);
 
-    // Animate opacity
     animatedOpacity.current += (targetOpacity - animatedOpacity.current) * 0.08;
     materialRef.current.opacity = animatedOpacity.current;
     materialRef.current.depthWrite = animatedOpacity.current > 0.5;
   });
 
-  // Don't render if type is hidden
   if (!isTypeVisible) return null;
 
   const isInteractive = animatedOpacity.current > 0.1;
 
-  // Debug: Log when selected
   useEffect(() => {
     if (isSelected) {
-      debugLog(metadata.meshId, 'SELECTED - Center info:', {
-        metadataCenter: metadata.center,
-        computedCenter: computedCenter.toArray(),
-      });
+      debugLog(metadata.meshId, 'SELECTED - Center:', center.toArray());
     }
-  }, [isSelected, metadata.meshId, metadata.center, computedCenter]);
+  }, [isSelected, metadata.meshId, center]);
 
-  // Geometry is already in world space (transforms baked in), so render at origin
   return (
     <mesh
       ref={meshRef}
@@ -371,16 +320,16 @@ export function AnatomyModelGLTF() {
   const clearSelection = useAnatomyStore((state) => state.clearSelection);
   const setLoading = useAnatomyStore((state) => state.setLoading);
 
-  // Parse metadata
   const metadata = JSON.parse(JSON.stringify(torsoMetadata)) as MetadataFile;
 
-  // Extract meshes, apply transforms, and compute centers
   const processedStructures = useMemo(() => {
     const structures: ProcessedStructure[] = [];
+    const usedMetadataKeys = new Set<string>();  // Track which metadata entries have been used
     let skippedByTypeOrName = 0;
+    let skippedDuplicate = 0;
+    let unmatchedCount = 0;
 
-    // CRITICAL: Update world matrices for the entire scene hierarchy
-    // This ensures child meshes have correct matrixWorld values
+    // Update world matrices for the entire scene hierarchy
     scene.updateMatrixWorld(true);
 
     if (DEBUG_ENABLED) {
@@ -391,44 +340,51 @@ export function AnatomyModelGLTF() {
 
     scene.traverse((child) => {
       if (child instanceof THREE.Mesh) {
-        const meshName = child.name;
-        const structureData = metadata.structures[meshName];
+        const gltfMeshName = child.name;
 
-        if (structureData) {
-          // Filter by type, name patterns, and suffix patterns
-          if (!shouldRenderByTypeAndName(structureData)) {
-            skippedByTypeOrName++;
-            return;
-          }
+        // Find matching metadata
+        const match = findMetadataForMesh(gltfMeshName, metadata.structures);
 
-          // Process the mesh and compute center
-          const processed = processGLTFMesh(child, structureData);
-          structures.push(processed);
-        } else {
-          // Log unmatched meshes for debugging
-          console.debug(`No metadata for mesh: ${meshName}`);
+        if (!match) {
+          unmatchedCount++;
+          return;
         }
+
+        // Skip if we've already used this metadata entry (prevents duplicates)
+        if (usedMetadataKeys.has(match.key)) {
+          skippedDuplicate++;
+          debugLog(gltfMeshName, `Skipping duplicate for metadata key: ${match.key}`);
+          return;
+        }
+
+        const structureData = match.data;
+
+        // Filter by type and name patterns
+        if (!shouldRenderByTypeAndName(structureData)) {
+          skippedByTypeOrName++;
+          return;
+        }
+
+        // Mark this metadata key as used
+        usedMetadataKeys.add(match.key);
+
+        // Process the mesh - use gltfMeshName as unique key to avoid React key conflicts
+        const processed = processGLTFMesh(child, structureData, gltfMeshName);
+        structures.push(processed);
       }
     });
 
-    console.log(`Loaded ${structures.length} structures (filtered out ${skippedByTypeOrName} by type/name/suffix)`);
-
-    if (DEBUG_ENABLED) {
-      console.log('='.repeat(60));
-      console.log('[DEBUG] Processing complete');
-      console.log('='.repeat(60));
-    }
+    console.log(`Loaded ${structures.length} structures`);
+    console.log(`  Skipped: ${skippedByTypeOrName} (filtered), ${skippedDuplicate} (duplicate), ${unmatchedCount} (no metadata)`);
 
     return structures;
   }, [scene, metadata]);
 
-  // Mark loading complete
   useEffect(() => {
     setLoading(false);
   }, [setLoading]);
 
-  // Calculate model bounds from FILTERED structures only
-  // Uses computed centers for accuracy
+  // Calculate model bounds from all structures
   const modelCenter = useMemo(() => {
     if (processedStructures.length === 0) {
       return new THREE.Vector3();
@@ -440,15 +396,12 @@ export function AnatomyModelGLTF() {
       box.union(meshBox);
     });
 
-    const center = box.getCenter(new THREE.Vector3());
-    return center;
+    return box.getCenter(new THREE.Vector3());
   }, [processedStructures]);
 
   return (
     <group
-      // Center the model
       position={[-modelCenter.x, -modelCenter.y, -modelCenter.z]}
-      // Clear selection when clicking empty space
       onClick={(e) => {
         if (e.eventObject === e.object) {
           clearSelection();
@@ -457,7 +410,7 @@ export function AnatomyModelGLTF() {
     >
       {processedStructures.map((structure) => (
         <StructureMesh
-          key={structure.metadata.meshId}
+          key={structure.uniqueKey}  // Use unique glTF mesh name, not metadata meshId
           structure={structure}
         />
       ))}
@@ -465,5 +418,4 @@ export function AnatomyModelGLTF() {
   );
 }
 
-// Preload the model
 useGLTF.preload('/models/torso.glb');
