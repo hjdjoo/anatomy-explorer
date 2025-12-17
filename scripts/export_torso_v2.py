@@ -150,6 +150,78 @@ def debug_log(obj_name: str, message: str, data: Any = None):
         print(f"  [DEBUG {obj_name}] {message}: {data}")
     else:
         print(f"  [DEBUG {obj_name}] {message}")
+    
+    # Enhanced debug for key structures - print additional info
+    if DEBUG_VERBOSE and any(s.lower() in obj_name.lower() for s in ["inguinal", "ligament"]):
+        try:
+            obj = bpy.data.objects.get(obj_name)
+            if obj and hasattr(obj, 'parent'):
+                print(f"    Object type: {obj.type}")
+                if obj.parent:
+                    print(f"    Parent object: {obj.parent.name}")
+                print(f"    Location: {list(obj.location)}")
+                print(f"    World matrix translation: {list(obj.matrix_world.translation)}")
+        except Exception as e:
+            print(f"    Could not fetch additional object info: {e}")
+        
+    # Add parent info for debugging
+    if DEBUG_VERBOSE and DEBUG_STRUCTURES and any(s.lower() in obj_name.lower() for s in DEBUG_STRUCTURES):
+        # Try to find and print parent info
+        try:
+            obj = bpy.data.objects.get(obj_name)
+            if obj:
+                parent_info = "None"
+                if obj.parent:
+                    parent_info = f"Parent: {obj.parent.name}"
+                print(f"    {parent_info}")
+        except:
+            pass
+
+def detailed_debug_log(obj, message: str, data: Any = None):
+    """Provide more detailed debug information including parent hierarchy."""
+    if not DEBUG_VERBOSE:
+        return
+    if DEBUG_STRUCTURES and not any(s.lower() in obj.name.lower() for s in DEBUG_STRUCTURES):
+        return
+    
+    # Enhanced debugging with parent information
+    parent_info = "None"
+    if hasattr(obj, 'parent') and obj.parent:
+        parent_info = f"{obj.parent.name} (type: {obj.parent.type})"
+    
+    if data is not None:
+        print(f"  [DEBUG {obj.name}] {message}: {data}")
+        print(f"    Parent: {parent_info}")
+        print(f"    Location: {list(obj.location) if hasattr(obj, 'location') else 'N/A'}")
+        print(f"    World Matrix Translation: {list(obj.matrix_world.translation) if hasattr(obj, 'matrix_world') else 'N/A'}")
+    else:
+        print(f"  [DEBUG {obj.name}] {message}")
+        print(f"    Parent: {parent_info}")
+        print(f"    Location: {list(obj.location) if hasattr(obj, 'location') else 'N/A'}")
+        print(f"    World Matrix Translation: {list(obj.matrix_world.translation) if hasattr(obj, 'matrix_world') else 'N/A'}")
+
+def detailed_debug_log(obj: bpy.types.Object, message: str, data: Any = None):
+    """Provide more detailed debug information including parent hierarchy."""
+    if not DEBUG_VERBOSE:
+        return
+    if DEBUG_STRUCTURES and not any(s.lower() in obj.name.lower() for s in DEBUG_STRUCTURES):
+        return
+    
+    # Enhanced debugging with parent information
+    parent_info = "None"
+    if obj.parent:
+        parent_info = f"{obj.parent.name} (type: {obj.parent.type})"
+    
+    if data is not None:
+        print(f"  [DEBUG {obj.name}] {message}: {data}")
+        print(f"    Parent: {parent_info}")
+        print(f"    Location: {list(obj.location)}")
+        print(f"    World Matrix Translation: {list(obj.matrix_world.translation)}")
+    else:
+        print(f"  [DEBUG {obj.name}] {message}")
+        print(f"    Parent: {parent_info}")
+        print(f"    Location: {list(obj.location)}")
+        print(f"    World Matrix Translation: {list(obj.matrix_world.translation)}")
 
 # ============================================================
 # HELPER FUNCTIONS
@@ -298,7 +370,15 @@ def get_object_center(obj: bpy.types.Object) -> List[float]:
     """
     loc = obj.matrix_world.translation
 
-    print(f"DEBUG {obj.name}: Blender loc=[{loc.x:.4f}, {loc.y:.4f}, {loc.z:.4f}]")
+    # Enhanced debug - show more context about object position
+    if DEBUG_VERBOSE and any(s in obj.name.lower() for s in ["inguinal", "ligament"]):
+        print(f"DEBUG {obj.name}:")
+        print(f"  Blender loc=[{loc.x:.4f}, {loc.y:.4f}, {loc.z:.4f}]")
+        print(f"  Object type: {obj.type}")
+        print(f"  Parent: {obj.parent.name if obj.parent else 'None'}")
+        print(f"  Data mesh name: {obj.data.name if hasattr(obj, 'data') else 'N/A'}")
+        print(f"  Mesh users: {obj.data.users}")
+        # print(f"  Mesh is multi-user: {len(obj.data.users) > 1 if hasattr(obj, 'data') and hasattr(obj.data, 'users') else 'Unknown'}")
     
     # Convert from Blender Z-up to Three.js Y-up
     x_threejs = loc.x
@@ -415,6 +495,12 @@ def fix_object_transforms(objects: List[bpy.types.Object]) -> List[bpy.types.Obj
             debug_log(obj.name, "Parent", obj.parent.name if obj.parent else "None")
             debug_log(obj.name, "Location", list(obj.location))
             debug_log(obj.name, "World location", list(obj.matrix_world.translation))
+            
+            # Add detailed info for problematic structures
+            if any(s in obj.name.lower() for s in ["inguinal", "ligament"]):
+                print(f"    Object type: {obj.type}")
+                print(f"    Data mesh name: {obj.data.name if hasattr(obj, 'data') else 'N/A'}")
+                print(f"    Users of mesh: {len(obj.data.users) if hasattr(obj, 'data') and hasattr(obj.data, 'users') else 'N/A'}")
             
             # Step 0 (NEW): Unparent while keeping transforms
             # This converts the relative transform to absolute world transform
