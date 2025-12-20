@@ -103,20 +103,22 @@ function findMetadataForMesh(
 ): { key: string; data: StructureMetadata } | null {
   // Try exact match first
   if (structures[gltfName]) {
+    console.log("metadata found for gltf name: ", gltfName)
     return { key: gltfName, data: structures[gltfName] };
   }
 
   // Try normalized name
   const normalized = normalizeGltfName(gltfName);
   if (structures[normalized]) {
+    console.log("metadata found for normalized gltf name: ", normalized)
     return { key: normalized, data: structures[normalized] };
   }
 
   // Try lowercase only
-  const lowercased = gltfName.toLowerCase();
-  if (structures[lowercased]) {
-    return { key: lowercased, data: structures[lowercased] };
-  }
+  // const lowercased = gltfName.toLowerCase();
+  // if (structures[lowercased]) {
+  //   return { key: lowercased, data: structures[lowercased] };
+  // }
 
   return null;
 }
@@ -143,7 +145,7 @@ const EXCLUDE_SUFFIX_PATTERNS = [
   /_er$/i,
 ];
 
-const EXCLUDE_TYPES = ['organ'];
+const EXCLUDE_TYPES = ['organ', 'other'];
 
 function shouldRenderByTypeAndName(metadata: StructureMetadata): boolean {
   if (EXCLUDE_TYPES.includes(metadata.type)) {
@@ -346,6 +348,7 @@ export function AnatomyModelGLTF() {
         const match = findMetadataForMesh(gltfMeshName, metadata.structures);
 
         if (!match) {
+          console.log("No match for", gltfMeshName)
           unmatchedCount++;
           return;
         }

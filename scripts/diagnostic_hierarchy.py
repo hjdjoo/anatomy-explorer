@@ -14,12 +14,8 @@ from typing import List, Tuple
 
 # Structures to investigate in detail
 INVESTIGATE = [
-    "superior_pubic_ligament",
-    "inferior_pubic_ligament", 
-    "interpubic_disc",
-    "pubic_symphysis",
-    "inguinal_ligament",
-    "inguinal_ligament_1",
+    "Iliopsoas Fascia",
+    "Descending part of trapezius muscle"
 ]
 
 def get_full_parent_chain(obj: bpy.types.Object) -> List[bpy.types.Object]:
